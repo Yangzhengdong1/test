@@ -1,193 +1,271 @@
-const path = require('path');
-const fs = require('fs');
-const order = process.argv[2];
+const fs = require("fs");
+const path = require("path");
+const readline = require("readline");
+const chalk = require("chalk");
 
+// 创建 readline 接口
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 
-const dirname = './拷贝测试/day01';
-const copyToDir = './拷贝测试/day02';
-const deleteDir = './拷贝测试/day02';
+let endTime = "";
+let targetDir = "";
+let originalDir = "";
+const timeReg = /^(?:\d{4})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[1-2]\d|3[0-1])$/;
+const questions = [
+  // {
+  //   id: "startTime",
+  //   question: "请输入开始时间："
+  // },
+  {
+    id: "endTime",
+    question: "请输入截至时间：",
+    output: "",
+  },
+  {
+    id: "originalDir",
+    question: "请输入需要检索复制的目录：",
+    output: "",
+  },
+  {
+    id: "targetDir",
+    question: "请输入目标目录：",
+    output: "",
+  },
+];
+const errMessages = [
+  "the directory or file already exists",
+  "failed to create a directory",
+  "failed to copy the file",
+];
 
 /**
- * @description: 批量创建文件夹
- * @param {*} rootDir 根目录
- * @param {*} num 创建多少个目录
- * @param {*} dirName 目录名称
- * @param {*} createFile 是否在创建目录的同时创建文件
- * @param {*} fileTypes 创建目录时想要创建的文件类型
+ * @description: 格式化时间戳
+ * @param {*} date 时间戳
+ * @return {*} 2024-01-01 格式字符串
  */
-const createDir = (rootDir, num, dirName = 'File', createFile = false, fileTypes = []) => {
-  if (typeof num !== 'number' || typeof dirName !== 'string' || typeof createFile !== 'boolean') {
-    return;
+const foramtDate = (date) => {
+  const Y = new Date(date).getFullYear();
+  const M =
+    new Date(date).getMonth() + 1 > 10
+      ? new Date(date).getMonth() + 1
+      : "0" + (new Date(date).getMonth() + 1);
+  const D =
+    new Date(date).getDate() > 10
+      ? new Date(date).getDate()
+      : "0" + new Date(date).getDate();
+  return `${Y}:${M}:${D}`;
+};
+
+/**
+ * @description: 判断当前字符串是否为一个合法的目录
+ * @param {*} dirPath 目录字符串
+ * @return {*} false/true
+ */
+const isValidDirectoryPath2 = (dirPath) => {
+  // 使用 path.isAbsolute() 检查是否为绝对路径
+  if (!path.isAbsolute(dirPath)) {
+    return false;
   }
-  for (let index = 0; index < num; index++) {
-    const i = index + 1;
-    const filepath = path.resolve(rootDir, `${dirName}${i < 10 ? '0' + i : i}`);
-    // 创建文件夹
-    fs.mkdir(filepath, (err) => {
-      if (err) {
-        console.log(`${dirName}${i < 10 ? '0' + i : i}创建失败`);
-        return;
-      }
-      // 判断是否需要在创建目录时同时创建文件
-      if (createFile) {
-        const pathTemp1 = path.resolve(filepath, 'test.txt');
-        const pathTemp2 = path.resolve(filepath, 'test.js');
-        fs.writeFile(pathTemp1, 'Hello Node', (writeFileErr) => {
-          if (writeFileErr) {
-            console.log('创建文件失败！');
-          }
-        });
-        fs.writeFile(pathTemp2, 'const message = "Hello Node";', (writeFileErr) => {
-          if (writeFileErr) {
-            console.log('创建文件失败！');
-          }
-        });
-      }
-    });
+
+  // 使用 path.normalize() 规范化路径
+  const normalizedPath = path.normalize(dirPath);
+
+  // 检查规范化后的路径是否和原始路径一致，避免路径被规范化后变为相对路径的情况
+  if (normalizedPath !== dirPath) {
+    return false;
+  }
+
+  // 使用 path.parse() 解析路径成对象
+  const pathObj = path.parse(dirPath);
+
+  // 检查 pathObj.dir 是否为空，以及其他条件
+  if (pathObj.dir === "" || pathObj.dir === "." || pathObj.ext !== "") {
+    return false;
+  }
+
+  // 最后可以根据需要进行其他的校验，比如检查路径是否合法等
+
+  // 如果通过了以上所有的校验，则认为是合法的目录路径
+  return true;
+};
+
+/**
+ * @description: 判断当前字符串是否为一个合法并存在的目录
+ * @param {*} directoryPath 目录字符串
+ * @return {*} false/true
+ */
+const isValidDirectoryPath = (directoryPath) => {
+  // 利用 path.normalize 规范化路径
+  const normalizedPath = path.normalize(directoryPath);
+
+  // 使用 path.isAbsolute 判断是否为绝对路径
+  if (!path.isAbsolute(normalizedPath)) {
+    return false;
+  }
+
+  // 使用 fs.statSync 检查路径是否存在且为目录
+  try {
+    const stat = fs.statSync(normalizedPath);
+    return stat.isDirectory();
+  } catch (err) {
+    return false;
   }
 };
 
 /**
- * @description: 删除rootDir下的目录以及文件
- * @param {*} dir 根目录
+ * @description: 根据 id 查找output
+ * @param {*} id questionsId
+ * @return {*} output
  */
-const emptyDir = (dir) => {
-  // 1、读取循环当前目录
-  fs.promises
-    .readdir(dir, { withFileTypes: true })
-    .then((files) => {
-      // 判断当前传入的是否是一个空文件夹，并且当前目录不是最初传入的根目录
-      // 条件符合的话直接删除当前目录，并且将父目录传入当前函数进行递归
-      if (files.length < 1 && dir !== path.resolve(__dirname, deleteDir)) {
-        fs.promises
-          .rmdir(dir)
-          .then((res) => {
-            emptyDir(path.resolve(dir, '../'));
-            console.log('删除父文件夹成功 => ', dir);
-          })['catch']((err) => {
-            console.log('删除父文件夹出错 => ', err);
-          });
-      }
-      // 2、循环目录中的文件
-      files.forEach((file) => {
-        // 判断当前循环项是目录还是文件
-        if (file.isDirectory()) {
-          const dirTemp = path.resolve(dir, file.name);
-          emptyDir(dirTemp);
-        } else {
-          const pathlink = path.resolve(dir, file.name);
-          fs.promises.unlink(pathlink).then((res) => {
-            console.log('删除文件成功 => ', pathlink);
-            emptyDir(dir);
-          });
-        }
-      });
-    })['catch']((err) => {
-      console.log('读取目录出错 ==> ', err);
-    });
-};
+const findOutput = (id) => questions.filter((item) => item.id === id)[0].output;
 
-const emptyDir2 = (rootDir) => {
-  // 读取目录
-  fs.readdir(rootDir, { withFileTypes: true }, (err, files) => {
-    if (err) {
-      return;
-    }
-    // 如果传进来的是一个空目录，不用循环，直接删掉
-    if (files.length < 1) {
-      fs.rmdir(rootDir, (rmDirErr) => {
-        if (rmDirErr) {
-          console.log('读取目录出现问题了：', rmDirErr);
-        }
-      });
-      return;
-    }
-    // 循环目录列表
-    files.forEach((file) => {
-      // console.log(file);
-      // 判断是否是一个目录
-      if (file.isDirectory()) {
-        const filepathTemp = path.resolve(rootDir, file.name);
-        emptyDir(filepathTemp);
-      } else {
-        // 删除文件
-        const filepathTemp = path.resolve(rootDir, file.name);
-        fs.unlink(filepathTemp, (error) => {
-          if (error) {
-            console.log('删除文件失败：', filepathTemp);
-          } else {
-            console.log(rootDir, 'rootDir');
-            // emptyDir(rootDir);
-            // console.log('删除文件成功：', file.name);
-          }
-        });
+/**
+ * @description: 使用 Promise 返回输入数据
+ * @param {*} question 输出内容
+ * @return {*} Promise
+ */
+const questionFun = (question) => {
+  return new Promise((resolve, reject) => {
+    rl.question(question, (answer) => {
+      if (!answer) {
+        reject("输入为空");
       }
+      resolve(answer);
     });
   });
-  // console.log('如果文件夹下有文件，请再执行一次');
 };
 
 /**
- * @description: 拷贝文件
- * @param {*} fromDir 从哪个目录拷贝
- * @param {*} toDir 拷贝后的目标目录
+ * @description: 查找修改日期大于当前日期的所有文件
+ * @param {*} dir 被复制的目录
+ * @param {*} date 日期
  */
-const copyMyFile = (fromDir, toDir) => {
-  // 读取将要被拷贝的文件夹
-  fs.promises
-    .readdir(fromDir, { withFileTypes: true })
-    .then((files) => {
-      if (files.length < 1) {
-        return;
-      }
-      files.forEach((file) => {
-        // 拷贝初始路径
-        const fromDirpathTemp = path.resolve(fromDir, file.name);
-        // 拷贝目标路径
-        const toDirpathTemp = path.resolve(toDir, file.name);
-        // 判断当前要拷贝的是一个目录or文件
-        if (file.isDirectory()) {
-          // 拷贝目标目录中创建一个目录
-          fs.promises
-            .mkdir(toDirpathTemp)
-            .then((res) => {
-              console.log('创建目录成功', toDirpathTemp);
-            })['catch']((err) => {
-              console.log('创建目录失败 ==> ', err);
-            });
-          // 执行递归
-          copyMyFile(fromDirpathTemp, toDirpathTemp);
-          // console.log(fromDirpathTemp, toDirpathTemp);
-        } else {
-          // console.log(fromDirpathTemp, toDirpathTemp);
-          // 过滤想要拷贝的文件
-          if (file.name.split('.')[1] === 'js') {
-            fs.promises
-              .copyFile(fromDirpathTemp, toDirpathTemp)
-              .then((res) => {
-                console.log('拷贝文件成功', toDirpathTemp);
-              })['catch']((err) => {
-                console.log('拷贝文件出错 ==> ', err);
-              });
-          }
+const findFile = async (dir) => {
+  try {
+    const files = await fs.readdirSync(dir, { withFileTypes: true });
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      // 当前文件名称
+      const filePath = path.resolve(dir, file.name);
+      // 最后修改时间(文件使用 mtime，目录使用 atime)
+      const mtime = +new Date(fs.statSync(filePath).mtime);
+      const atime = +new Date(fs.statSync(filePath).atime);
+      // 将原始目录替换为目标目录
+      const targetPath = dir.replace(originalDir, targetDir);
+      const targetFileName = path.resolve(targetPath, file.name);
+      // console.log(filePath, "最后修改时间：", foramtDate(mtime));
+      // console.log("目标目录：", targetPath);
+      if (file.isDirectory()) {
+        if (atime > +new Date(endTime)) {
+          findFile(filePath);
+          copyFile(filePath, targetFileName, true);
         }
-      });
-    })['catch']((err) => {
-      console.log('读取目录出错了 ==>', err);
-    });
+        // console.log("目录：", fileName);
+      } else {
+        // console.log("文件：", fileName);
+        if (mtime > +new Date(endTime)) {
+          copyFile(filePath, targetFileName);
+        }
+      }
+    }
+  } catch (err) {
+    console.log("读取目录出错：", err);
+  }
+};
+/**
+ * @description: 拷贝文件与创建目录
+ * @param {*} originalFile 原始文件
+ * @param {*} targetFileName 目标目录
+ * @param {*} isDirectory 是否为目录
+ */
+const copyFile = (originalFile, targetFileName, isDirectory = false) => {
+  // console.log("原始目录：", originalFile);
+  // console.log("目标目录：", targetFileName);
+  try {
+    fs.accessSync(targetFileName);
+    console.log(chalk.blue("目录或文件已存在"), targetFileName);
+  } catch (err) {
+    if (isDirectory) {
+      // 创建目录
+      try {
+        fs.mkdirSync(targetFileName);
+        // console.log("创建目录成功：", targetFileName);
+      } catch (err) {
+        console.log(chalk.red("创建目录失败："), err);
+      }
+    } else {
+      // 拷贝文件
+      try {
+        fs.copyFileSync(originalFile, targetFileName);
+        // console.log("拷贝文件成功：", targetFileName);
+      } catch (err) {
+        console.log(chalk.red("拷贝文件失败："), err);
+      }
+    }
+  }
 };
 
+/**
+ * @description: 按顺序循环输出内容
+ * @param {*} i 指定输出内容下标，在中途终止输出后可以继续输出终止内容
+ */
+const start = async (i) => {
+  for (let index = i; index < questions.length; index++) {
+    const question = questions[index].question;
+    const id = questions[index].id;
 
-switch (order) {
-  case 'delete':
-    emptyDir(deleteDir);
-    break;
-  case 'create':
-    createDir(dirname, 5, 'dir', true);
-    break;
-  case 'copy':
-    copyMyFile(dirname, copyToDir);
-    break;
-  default:
-    break;
-}
+    try {
+      let answer = await questionFun(question);
+      answer = answer.trim();
+      // 校验是否为合法路径及目录
+      if (
+        (id === "targetDir" && !isValidDirectoryPath2(answer)) ||
+        (id === "originalDir" && !isValidDirectoryPath(answer))
+      ) {
+        console.log(chalk.red("请输入合法的文件路径"));
+        start(index);
+        return;
+      }
+      if (id === "endTime" && !timeReg.test(answer)) {
+        console.log(chalk.red("请输入 YYYY-MM-DD 格式的日期"));
+        start(index);
+        return;
+      }
+      if (id === "targetDir" && findOutput("originalDir") === answer) {
+        console.log(chalk.red("目标目录不能与被复制目录一致"));
+        start(index);
+        return;
+      }
+      questions[index].output = answer;
+
+      // 全部问完之后关闭进程
+      if (index === questions.length - 1) {
+        rl.close();
+      }
+    } catch (err) {
+      console.log(err, "errrrr");
+      if (err === "输入为空") {
+        console.log(chalk.red("请不要输入空值"));
+        start(index);
+      }
+      break;
+    }
+  }
+  endTime = findOutput("endTime");
+  originalDir = findOutput("originalDir");
+  targetDir = findOutput("targetDir");
+  // 如果是一个已存在的目录，则不需要手动创建该目录
+  if (!isValidDirectoryPath(targetDir)) {
+    copyFile("", targetDir, true);
+  }
+  try {
+    findFile(originalDir);
+    console.log(chalk.green("文件拷贝完成~"));
+  } catch (err) {
+    console.log(chalk.red("文件拷贝失败"));
+  }
+};
+
+start(0);
