@@ -12,6 +12,7 @@ const rl = readline.createInterface({
 let endTime = "";
 let targetDir = "";
 let originalDir = "";
+let needCopy = false;
 const timeReg = /^(?:\d{4})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[1-2]\d|3[0-1])$/;
 const questions = [
   // {
@@ -25,14 +26,19 @@ const questions = [
   },
   {
     id: "originalDir",
-    question: "请输入需要检索复制的目录：",
+    question: "请输入需要检索的目录：",
     output: "",
+  },
+  {
+    id: "needCopy",
+    question: "检索完成后是否需要拷贝(Y/N)：",
+    output: ""
   },
   {
     id: "targetDir",
     question: "请输入目标目录：",
     output: "",
-  },
+  }
 ];
 const errMessages = [
   "the directory or file already exists",
@@ -48,14 +54,14 @@ const errMessages = [
 const foramtDate = (date) => {
   const Y = new Date(date).getFullYear();
   const M =
-    new Date(date).getMonth() + 1 > 10
+    new Date(date).getMonth() + 1 >= 10
       ? new Date(date).getMonth() + 1
       : "0" + (new Date(date).getMonth() + 1);
   const D =
-    new Date(date).getDate() > 10
+    new Date(date).getDate() >= 10
       ? new Date(date).getDate()
       : "0" + new Date(date).getDate();
-  return `${Y}:${M}:${D}`;
+  return `${Y}-${M}-${D}`;
 };
 
 /**
@@ -161,12 +167,16 @@ const findFile = async (dir) => {
         if (atime > +new Date(endTime)) {
           findFile(filePath);
           copyFile(filePath, targetFileName, true);
+          if (!needCopy) {
+            console.log(chalk.yellow(`目录(最后修改时间:${foramtDate(atime)})：`), filePath);
+          }
         }
-        // console.log("目录：", fileName);
       } else {
-        // console.log("文件：", fileName);
         if (mtime > +new Date(endTime)) {
           copyFile(filePath, targetFileName);
+          if (!needCopy) {
+            console.log(chalk.cyan(`文件(最后修改时间:${foramtDate(mtime)})：`), filePath);
+          }
         }
       }
     }
@@ -181,6 +191,9 @@ const findFile = async (dir) => {
  * @param {*} isDirectory 是否为目录
  */
 const copyFile = (originalFile, targetFileName, isDirectory = false) => {
+  if (!needCopy) {
+    return;
+  }
   // console.log("原始目录：", originalFile);
   // console.log("目标目录：", targetFileName);
   try {
@@ -191,7 +204,7 @@ const copyFile = (originalFile, targetFileName, isDirectory = false) => {
       // 创建目录
       try {
         fs.mkdirSync(targetFileName);
-        // console.log("创建目录成功：", targetFileName);
+        console.log(chalk.green("创建目录成功："), targetFileName);
       } catch (err) {
         console.log(chalk.red("创建目录失败："), err);
       }
@@ -199,7 +212,7 @@ const copyFile = (originalFile, targetFileName, isDirectory = false) => {
       // 拷贝文件
       try {
         fs.copyFileSync(originalFile, targetFileName);
-        // console.log("拷贝文件成功：", targetFileName);
+        console.log(chalk.green("拷贝文件成功："), targetFileName);
       } catch (err) {
         console.log(chalk.red("拷贝文件失败："), err);
       }
@@ -233,13 +246,20 @@ const start = async (i) => {
         start(index);
         return;
       }
+      if (id === "needCopy" && !["Y", "y", "N", "n"].includes(answer)) {
+        start(index);
+        return;
+      }
       if (id === "targetDir" && findOutput("originalDir") === answer) {
         console.log(chalk.red("目标目录不能与被复制目录一致"));
         start(index);
         return;
       }
       questions[index].output = answer;
-
+      if (id === "needCopy" && ["N", "n"].includes(answer)) {
+        rl.close();
+        break;
+      }
       // 全部问完之后关闭进程
       if (index === questions.length - 1) {
         rl.close();
@@ -256,13 +276,15 @@ const start = async (i) => {
   endTime = findOutput("endTime");
   originalDir = findOutput("originalDir");
   targetDir = findOutput("targetDir");
+  needCopy = ["Y", "y"].includes(findOutput("needCopy"));
+  console.log(questions);
   // 如果是一个已存在的目录，则不需要手动创建该目录
   if (!isValidDirectoryPath(targetDir)) {
     copyFile("", targetDir, true);
   }
   try {
     findFile(originalDir);
-    console.log(chalk.green("文件拷贝完成~"));
+    // console.log(chalk.green("文件拷贝完成~"));
   } catch (err) {
     console.log(chalk.red("文件拷贝失败"));
   }
